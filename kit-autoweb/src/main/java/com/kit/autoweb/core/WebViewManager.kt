@@ -6,8 +6,8 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.webkit.WebView
-import com.kit.autoweb.ui.model.Appointment
 import com.kit.autoweb.ui.model.ElementInfo
+import com.kit.autoweb.ui.model.ElementWrap
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -532,49 +532,74 @@ class WebViewManager(private val webView: WebView) {
         Log.d("WebViewManager", "getAllElements")
         val javascript = """
         (function() {
-            var allElements = [];
-
-            // 获取页面中所有的元素
-            var elements = document.querySelectorAll('*');
-            elements.forEach(function(element) {
+                var allElements = [];
+                
+                // 获取设备像素比和viewport信息
+                var devicePixelRatio = window.devicePixelRatio || 1;
+                var viewportWidth = window.innerWidth;
+                var viewportHeight = window.innerHeight;
+                
+                // 添加调试信息
+                console.log('设备像素比:', devicePixelRatio);
+                console.log('viewport尺寸:', viewportWidth, 'x', viewportHeight);
+                console.log('屏幕尺寸:', screen.width, 'x', screen.height);
             
-                // 仅处理包含 id 或 className 的元素
-                if (!element.id && (!element.className || typeof element.className !== 'string')) {
-                    return;
-                }
-
-                var rect = element.getBoundingClientRect();
-                var isVisible = rect.width > 0 && rect.height > 0 &&
-                              window.getComputedStyle(element).visibility !== 'hidden' &&
-                              window.getComputedStyle(element).display !== 'none' &&
-                              !(rect.bottom < 0 || rect.top > window.innerHeight ||
-                                rect.right < 0 || rect.left > window.innerWidth);
-
-                // 收集基本标识符（优先使用 id，其次 class，最后 tagName）
-                var identifier = null;
-                if (element.id) {
-                    identifier = '#' + element.id;
-                } else if (element.className && typeof element.className === 'string') {
-                    var className = element.className.replace(/\s+/g, '.');
-                    identifier = '.' + className;
-                } else {
-                    identifier = element.tagName.toLowerCase();
-                }
-
-                // 收集元素的基本信息
-                var elementInfo = {
-                    identifier: identifier,
-                    x: Math.round(rect.left + rect.width / 2),
-                    y: Math.round(rect.top + rect.height / 2),
-                    width: Math.round(rect.width),
-                    height: Math.round(rect.height),
-                    isVisible: isVisible
+                // 获取页面中所有的元素
+                var elements = document.querySelectorAll('*');
+                elements.forEach(function(element) {
+                
+                    // 仅处理包含 id 或 className 的元素
+                    if (!element.id && (!element.className || typeof element.className !== 'string')) {
+                        return;
+                    }
+            
+                    var rect = element.getBoundingClientRect();
+                    var isVisible = rect.width > 0 && rect.height > 0 &&
+                                  window.getComputedStyle(element).visibility !== 'hidden' &&
+                                  window.getComputedStyle(element).display !== 'none' &&
+                                  !(rect.bottom < 0 || rect.top > window.innerHeight ||
+                                    rect.right < 0 || rect.left > window.innerWidth);
+            
+                    // 收集基本标识符（优先使用 id，其次 class，最后 tagName）
+                    var identifier = null;
+                    if (element.id) {
+                        identifier = '#' + element.id;
+                    } else if (element.className && typeof element.className === 'string') {
+                        var className = element.className.replace(/\s+/g, '.');
+                        identifier = '.' + className;
+                    } else {
+                        identifier = element.tagName.toLowerCase();
+                    }
+            
+                    // 检查是否有title属性，有的话返回，没有就空字符串
+                    var title = element.title || '';
+            
+                    // 收集元素的基本信息（可选择是否应用设备像素比）
+                    var elementInfo = {
+                        identifier: identifier,
+                        // 如果需要物理像素坐标，可以使用下面这些
+                        x: Math.round((rect.left + rect.width / 2) * devicePixelRatio),
+                        y: Math.round((rect.top + rect.height / 2) * devicePixelRatio),
+                        width: Math.round(rect.width * devicePixelRatio),
+                        height: Math.round(rect.height * devicePixelRatio),
+                        isVisible: isVisible,
+                        title: title
+                    };
+            
+                    allElements.push(elementInfo);
+                });
+            
+                // 添加viewport和设备信息到返回结果
+                return {
+                    deviceInfo: {
+                        devicePixelRatio: devicePixelRatio,
+                        viewportWidth: viewportWidth,
+                        viewportHeight: viewportHeight,
+                        screenWidth: screen.width,
+                        screenHeight: screen.height
+                    },
+                    elements: allElements
                 };
-
-                allElements.push(elementInfo);
-            });
-
-            return JSON.stringify(allElements);
         })();
     """.trimIndent()
 
@@ -582,22 +607,33 @@ class WebViewManager(private val webView: WebView) {
             val moshi = Moshi.Builder()
                 .add(KotlinJsonAdapterFactory())
                 .build()
-            val listType: Type =
-                Types.newParameterizedType(List::class.java, ElementInfo::class.java)
-            val jsonAdapter = moshi.adapter<List<ElementInfo>>(listType)
+            val wrapType: Type =
+                Types.newParameterizedType(ElementWrap::class.java, ElementWrap::class.java)
+            val jsonAdapter = moshi.adapter<ElementWrap>(wrapType)
             try {
                 // 去除外层引号并替换转义字符
                 val cleanResult = result?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
 
-                val elements = mutableListOf<ElementInfo>()
-                jsonAdapter.fromJson(cleanResult)?.forEach { element ->
-                    Log.d(
-                        TAG,
-                        "元素: ${element.identifier}, 可见: ${element.isVisible}, 位置: (${element.x}, ${element.y})"
-                    )
-                    elements.add(element)
+                jsonAdapter.fromJson(cleanResult)?.let {
+                    it.deviceInfo.let { deviceInfo ->
+                        Log.d(
+                            TAG,
+                            "设备像素比: ${deviceInfo.devicePixelRatio}, " +
+                                    "viewport尺寸: ${deviceInfo.viewportWidth} x ${deviceInfo.viewportHeight}, " +
+                                    "屏幕尺寸: ${deviceInfo.screenWidth} x ${deviceInfo.screenHeight}"
+                        )
+                    }
+                    it.elements.forEach { element ->
+                        Log.d(
+                            TAG,
+                            "元素: ${element.identifier}," +
+                                    " 标题: ${element.title}, " +
+                                    " 可见: ${element.isVisible}, " +
+                                    "位置: (${element.x}, ${element.y})"
+                        )
+                    }
+                    callback(it.elements)
                 }
-                callback(elements)
             } catch (e: Exception) {
                 Log.e(TAG, "JSON 解析失败", e)
             }

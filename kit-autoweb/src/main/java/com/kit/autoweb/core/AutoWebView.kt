@@ -3,10 +3,15 @@ package com.kit.autoweb.core
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.http.SslError
 import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.RelativeLayout
@@ -55,7 +60,6 @@ class AutoWebViewGroup : RelativeLayout {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-
                 Log.d(
                     "WebViewContainer",
                     "页面完全加载完成，所有资源（图片、JS 等）都加载完毕: $url "
@@ -78,6 +82,42 @@ class AutoWebViewGroup : RelativeLayout {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 Log.d("WebViewContainer", "页面开始加载，URL 第一次请求时触发: $url")
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                Log.d(
+                    "WebViewContainer",
+                    "页面加载错误，URL 最后一次请求时触发: ${request?.url}"
+                )
+                super.onReceivedError(view, request, error)
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?
+            ) {
+                Log.d(
+                    "WebViewContainer",
+                    "页面加载错误，URL 最后一次请求时触发: ${request?.url}"
+                )
+                super.onReceivedHttpError(view, request, errorResponse)
+            }
+
+            override fun onReceivedSslError(
+                view: WebView?,
+                handler: SslErrorHandler?,
+                error: SslError?
+            ) {
+                Log.d(
+                    "WebViewContainer",
+                    "页面加载错误，URL 最后一次请求时触发: $error"
+                )
+                super.onReceivedSslError(view, handler, error)
             }
         }
 

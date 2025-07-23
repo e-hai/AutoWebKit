@@ -4,4 +4,4 @@ import com.squareup.moshi.JsonClass
 
 
 @JsonClass(generateAdapter = true)
-data class Appointment(val date: String, val status: String)
+data class ElementWrap(val deviceInfo: DeviceInfo, val elements: List<ElementInfo>)
