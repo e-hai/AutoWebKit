@@ -9,7 +9,7 @@ import com.squareup.moshi.JsonClass
 @JsonClass(generateAdapter = true)
 data class ElementInfo(
     val identifier: String, //唯一标识
-    val title: String,
+    val title: String,      //标题
     val x: Int,             //中心的x坐标
     val y: Int,             //中心的y坐标
     val width: Int,         //宽度

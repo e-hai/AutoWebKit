@@ -34,8 +34,7 @@ class WebViewViewModel : ViewModel() {
     fun showElementList(elements: List<ElementInfo>) {
         Log.d("WebViewViewModel", "显示元素列表: $elements")
         viewModelScope.launch {
-            val visibleElements = elements.filter { it.isVisible }
-            _uiState.update { it.copy(elements = visibleElements) }
+            _uiState.update { it.copy(elements = elements) }
         }
     }
 
@@ -43,10 +42,14 @@ class WebViewViewModel : ViewModel() {
     fun onElementClick(elementInfo: ElementInfo) {
         Log.d("WebViewViewModel", "点击元素: $elementInfo")
         viewModelScope.launch {
-            delay(600)
+//            webViewManager?.clickElementWithStepsImproved(elementInfo) {
+//                Log.d("WebViewViewModel", "Click element result: $it")
+//            }
+//
+            delay(1000)
             val position = PointF(elementInfo.x.toFloat(), elementInfo.y.toFloat())
             _uiState.update { it.copy(simulationClickPosition = position) }
-            delay(3000)
+            delay(2000)
 
             webViewManager?.simulateNativeTouchEvent(
                 elementInfo.x.toFloat(),
