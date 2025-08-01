@@ -8,6 +8,7 @@ import kotlinx.coroutines.*
 import android.util.Log
 import com.kit.autoweb.core.WebViewManager
 import com.kit.autoweb.ui.model.ElementInfo
+import com.kit.autoweb.ui.model.ElementUrl
 
 // ViewModel
 class WebViewViewModel : ViewModel() {
@@ -18,13 +19,32 @@ class WebViewViewModel : ViewModel() {
 
 
     fun setWebViewManager(manager: WebViewManager) {
-        Log.d("WebViewViewModel", "设置WebViewManager: $manager")
+        Log.d(TAG, "设置WebViewManager: $manager")
         webViewManager = manager
     }
 
 
+    fun scanUrls() {
+        Log.d(TAG, "开始扫描链接...")
+        webViewManager?.getAllUrls {
+            Log.d(TAG, "获取到的所有链接: $it")
+            showUrlList(it)
+        }
+    }
+
+    fun onClickUrl(url: ElementUrl) {
+        Log.d(TAG, "点击链接: $url")
+        webViewManager?.loadUrl(url.url)
+    }
+
+    private fun showUrlList(urls: List<ElementUrl>) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(urls = urls) }
+        }
+    }
+
     fun scanElements() {
-        Log.d("WebViewViewModel", "开始扫描元素...")
+        Log.d(TAG, "开始扫描元素...")
         webViewManager?.getAllElements { elements ->
             showElementList(elements)
         }
@@ -32,7 +52,7 @@ class WebViewViewModel : ViewModel() {
 
 
     fun showElementList(elements: List<ElementInfo>) {
-        Log.d("WebViewViewModel", "显示元素列表: $elements")
+        Log.d(TAG, "显示元素列表: $elements")
         viewModelScope.launch {
             _uiState.update { it.copy(elements = elements) }
         }
@@ -40,10 +60,10 @@ class WebViewViewModel : ViewModel() {
 
 
     fun onElementClick(elementInfo: ElementInfo) {
-        Log.d("WebViewViewModel", "点击元素: $elementInfo")
+        Log.d(TAG, "点击元素: $elementInfo")
         viewModelScope.launch {
 //            webViewManager?.clickElementWithStepsImproved(elementInfo) {
-//                Log.d("WebViewViewModel", "Click element result: $it")
+//                Log.d(TAG, "Click element result: $it")
 //            }
 //
             delay(1000)
@@ -55,7 +75,7 @@ class WebViewViewModel : ViewModel() {
                 elementInfo.x.toFloat(),
                 elementInfo.y.toFloat()
             ) { result ->
-                Log.d("WebViewViewModel", "Click element result: $result")
+                Log.d(TAG, "Click element result: $result")
             }
 
             // 自动清除点击位置
@@ -64,10 +84,15 @@ class WebViewViewModel : ViewModel() {
         }
     }
 
+
+    companion object {
+        const val TAG = "WebViewViewModel"
+    }
 }
 
 // UI State
 data class WebViewUiState(
     val simulationClickPosition: PointF? = null,     //模拟点击的位置
     val elements: List<ElementInfo> = emptyList(),
+    val urls: List<ElementUrl> = emptyList(),
 )

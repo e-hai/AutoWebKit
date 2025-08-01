@@ -1,14 +1,12 @@
 package com.kit.autoweb.core
 
 
-import android.content.res.Resources
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.Log
-import android.view.MotionEvent
 import android.webkit.WebView
 import com.kit.autoweb.ui.model.ElementInfo
+import com.kit.autoweb.ui.model.ElementUrl
 import com.kit.autoweb.ui.model.ElementWrap
 import com.kit.autoweb.ui.model.PageScrollInfo
 import com.squareup.moshi.Moshi
@@ -386,7 +384,7 @@ class WebViewManager(private val webView: WebView) {
     private fun getPageScrollInfo(callback: (PageScrollInfo) -> Unit) {
         val javascript = """
             (function() {
-                return JSON.stringify({
+                return {
                     scrollTop: window.pageYOffset || document.documentElement.scrollTop,
                     scrollLeft: window.pageXOffset || document.documentElement.scrollLeft,
                     scrollWidth: document.documentElement.scrollWidth,
@@ -395,7 +393,7 @@ class WebViewManager(private val webView: WebView) {
                     clientHeight: document.documentElement.clientHeight,
                     viewportWidth: window.innerWidth,
                     viewportHeight: window.innerHeight
-                });
+                };
             })();
         """.trimIndent()
 
@@ -405,8 +403,7 @@ class WebViewManager(private val webView: WebView) {
                     .add(KotlinJsonAdapterFactory())
                     .build()
                 val adapter = moshi.adapter(PageScrollInfo::class.java)
-                val cleanResult = result?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
-                val pageInfo = adapter.fromJson(cleanResult) ?: PageScrollInfo()
+                val pageInfo = adapter.fromJson(result) ?: PageScrollInfo()
                 callback(pageInfo)
             } catch (e: Exception) {
                 Log.e(TAG, "解析页面滚动信息失败", e)
@@ -516,6 +513,21 @@ class WebViewManager(private val webView: WebView) {
                                 
                                         // 检查是否有title属性，有的话返回，没有就空字符串
                                         var title = element.title || '';
+                                        // 限制title长度不超过20个字符
+                                        title = title.length > 20 ? title.substring(0, 20) : title;
+                                        
+                                        // 检查元素是否可点击
+                                        var url = '';
+                                        
+                                        // 检查是否是链接元素
+                                        if (element.tagName.toLowerCase() === 'a' && element.href) {
+                                            url = element.href;
+                                        }
+                                        
+                                        // 检查是否有data-href属性
+                                        if (element.hasAttribute('data-href')) {
+                                            url = element.getAttribute('data-href') || '';
+                                        }
                                 
                                         // 收集元素的基本信息（可选择是否应用设备像素比）
                                         var elementInfo = {
@@ -526,7 +538,8 @@ class WebViewManager(private val webView: WebView) {
                                             width: Math.round(rect.width),
                                             height: Math.round(rect.height),
                                             isVisible: isVisible,
-                                            title: title
+                                            title: title,
+                                            url: url
                                         };
                                 
                                         allElements.push(elementInfo);
@@ -547,19 +560,7 @@ class WebViewManager(private val webView: WebView) {
                 Types.newParameterizedType(ElementWrap::class.java, ElementWrap::class.java)
             val jsonAdapter = moshi.adapter<ElementWrap>(wrapType)
             try {
-                // 去除外层引号并替换转义字符
-                val cleanResult = result?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
-
-                jsonAdapter.fromJson(cleanResult)?.let {
-                    it.elements.forEach { element ->
-                        Log.d(
-                            TAG,
-                            "元素: ${element.identifier}," +
-                                    " 标题: ${element.title}, " +
-                                    " 可见: ${element.isVisible}, " +
-                                    "位置: (${element.x}, ${element.y})"
-                        )
-                    }
+                jsonAdapter.fromJson(result)?.let {
                     callback(it.elements)
                 }
             } catch (e: Exception) {
@@ -753,19 +754,33 @@ class WebViewManager(private val webView: WebView) {
                                 // 获取元素的title属性
                                 var elementTitle = element.title || element.getAttribute('title') || '';    
                                 
-                                return JSON.stringify({
-                                    identifier: identifier,
-                                    searchMethod: searchMethod,
-                                    // 物理像素坐标
-                                    x: Math.round(rect.left + rect.width / 2),
-                                    y: Math.round(rect.top + rect.height / 2),
-                                    width: Math.round(rect.width),
-                                    height: Math.round(rect.height),
-                                    isVisible: isVisible,
-                                    title: elementTitle,
-                                    targetTitle: targetTitle,
-                                    candidatesFound: uniqueCandidates.length
-                                });
+                                // 检查元素是否可点击和是否有URL
+                                var url = '';
+                                
+                                // 检查是否是链接元素
+                                if (element.tagName.toLowerCase() === 'a' && element.href) {
+                                    url = element.href;
+                                }
+                                
+                                // 检查是否有data-href属性
+                                if (element.hasAttribute('data-href')) {
+                                    url = element.getAttribute('data-href') || '';
+                                }
+                                
+                                return {
+                                        identifier: identifier,
+                                        searchMethod: searchMethod,
+                                        // 物理像素坐标
+                                        x: Math.round(rect.left + rect.width / 2),
+                                        y: Math.round(rect.top + rect.height / 2),
+                                        width: Math.round(rect.width),
+                                        height: Math.round(rect.height),
+                                        isVisible: isVisible,
+                                        title: elementTitle,
+                                        targetTitle: targetTitle,
+                                        candidatesFound: uniqueCandidates.length,
+                                        url: url,
+                                        };
                             } catch (e) {
                                 return 'ERROR: ' + e.message;
                             }
@@ -774,8 +789,7 @@ class WebViewManager(private val webView: WebView) {
 
         webView.evaluateJavascript(javascript) { result ->
             mainHandler.post {
-                val cleanResult = result?.removeSurrounding("\"")?.replace("\\\"", "\"") ?: ""
-                callback(cleanResult)
+                callback(result)
             }
         }
     }
@@ -968,30 +982,324 @@ class WebViewManager(private val webView: WebView) {
     /**
      * 获取网页中所有的URL
      */
-    fun getAllUrls(callback: (List<String>) -> Unit) {
+    fun getAllUrls(callback: (List<ElementUrl>) -> Unit) {
         val javascript = """
         (function() {
-            var urls = [];
-            var links = document.querySelectorAll('a[href]');
+            var urls = new Set(); // 使用Set避免重复URL
             
+            // 查找所有带href属性的链接元素
+            var links = document.querySelectorAll('a[href]');
             links.forEach(function(link) {
                 var url = link.href;
-                if (url) {
-                    urls.push(url);
+                if (url && url.trim() !== '' && !url.startsWith('javascript:')) {
+                    // 标准化URL，去除hash部分
+                    try {
+                        var urlObj = new URL(url, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        // 如果URL解析失败，添加原始URL
+                        urls.add(url);
+                    }
                 }
             });
 
-            return JSON.stringify(urls);
+            // 查找所有带data-href属性的元素
+            var dataLinks = document.querySelectorAll('[data-href]');
+            dataLinks.forEach(function(link) {
+                var url = link.getAttribute('data-href');
+                if (url && url.trim() !== '' && !url.startsWith('javascript:')) {
+                    try {
+                        var urlObj = new URL(url, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        urls.add(url);
+                    }
+                }
+            });
+
+            // 查找所有带onclick属性且包含location.href的元素
+            var onclickElements = document.querySelectorAll('[onclick*="location.href"]');
+            onclickElements.forEach(function(element) {
+                var onclick = element.getAttribute('onclick');
+                // 简单提取href后的URL（基本匹配）
+                var match = onclick.match(/location\.href\s*=\s*["'](.*?)["']/);
+                if (match && match[1]) {
+                    var url = match[1];
+                    if (url && url.trim() !== '' && !url.startsWith('javascript:')) {
+                        try {
+                            var urlObj = new URL(url, window.location.href);
+                            urls.add(urlObj.href);
+                        } catch (e) {
+                            urls.add(url);
+                        }
+                    }
+                }
+            });
+            
+            // 查找所有资源URL
+            // 图片资源
+            var images = document.querySelectorAll('img[src]');
+            images.forEach(function(img) {
+                var url = img.src;
+                if (url && url.trim() !== '') {
+                    try {
+                        var urlObj = new URL(url, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        urls.add(url);
+                    }
+                }
+            });
+            
+            // 脚本资源
+            var scripts = document.querySelectorAll('script[src]');
+            scripts.forEach(function(script) {
+                var url = script.src;
+                if (url && url.trim() !== '') {
+                    try {
+                        var urlObj = new URL(url, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        urls.add(url);
+                    }
+                }
+            });
+            
+            // 样式表资源
+            var stylesheets = document.querySelectorAll('link[rel="stylesheet"][href]');
+            stylesheets.forEach(function(stylesheet) {
+                var url = stylesheet.href;
+                if (url && url.trim() !== '') {
+                    try {
+                        var urlObj = new URL(url, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        urls.add(url);
+                    }
+                }
+            });
+            
+            // 视频和音频资源
+            var media = document.querySelectorAll('video[src], audio[src], source[src]');
+            media.forEach(function(element) {
+                var url = element.src;
+                if (url && url.trim() !== '') {
+                    try {
+                        var urlObj = new URL(url, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        urls.add(url);
+                    }
+                }
+            });
+            
+            // 其他嵌入资源
+            var embeds = document.querySelectorAll('embed[src], object[data]');
+            embeds.forEach(function(element) {
+                var url = element.src || element.data;
+                if (url && url.trim() !== '') {
+                    try {
+                        var urlObj = new URL(url, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        urls.add(url);
+                    }
+                }
+            });
+            
+            // 背景图片URL
+            var elementsWithBgImage = document.querySelectorAll('*');
+            elementsWithBgImage.forEach(function(element) {
+                var style = window.getComputedStyle(element);
+                var bgImage = style.backgroundImage;
+                if (bgImage && bgImage !== 'none') {
+                    // 提取url("...")或url('...')中的URL
+                    var match = bgImage.match(/url\(['"]?(.*?)['"]?\)/);
+                    if (match && match[1]) {
+                        var url = match[1];
+                        if (url && url.trim() !== '') {
+                            try {
+                                var urlObj = new URL(url, window.location.href);
+                                urls.add(urlObj.href);
+                            } catch (e) {
+                                urls.add(url);
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // iframe内的URL
+            var iframes = document.querySelectorAll('iframe[src]');
+            iframes.forEach(function(iframe) {
+                // 添加iframe自身的src
+                var iframeSrc = iframe.src;
+                if (iframeSrc && iframeSrc.trim() !== '') {
+                    try {
+                        var urlObj = new URL(iframeSrc, window.location.href);
+                        urls.add(urlObj.href);
+                    } catch (e) {
+                        urls.add(iframeSrc);
+                    }
+                }
+                
+                // 尝试获取iframe内部的URL（受同源策略限制）
+                try {
+                    if (iframe.contentDocument) {
+                        // 获取iframe内部的链接
+                        var iframeLinks = iframe.contentDocument.querySelectorAll('a[href]');
+                        iframeLinks.forEach(function(link) {
+                            var url = link.href;
+                            if (url && url.trim() !== '' && !url.startsWith('javascript:')) {
+                                try {
+                                    var urlObj = new URL(url, iframe.src || window.location.href);
+                                    urls.add(urlObj.href);
+                                } catch (e) {
+                                    urls.add(url);
+                                }
+                            }
+                        });
+                        
+                        // 获取iframe内部的资源URL
+                        var iframeResources = iframe.contentDocument.querySelectorAll('img[src], script[src], link[href], video[src], audio[src], source[src], embed[src], object[data]');
+                        iframeResources.forEach(function(resource) {
+                            var resourceUrl = resource.src || resource.href || resource.data;
+                            if (resourceUrl && resourceUrl.trim() !== '') {
+                                try {
+                                    var urlObj = new URL(resourceUrl, iframe.src || window.location.href);
+                                    urls.add(urlObj.href);
+                                } catch (e) {
+                                    urls.add(resourceUrl);
+                                }
+                            }
+                        });
+                    }
+                } catch (e) {
+                    // 忽略跨域错误
+                    console.log('无法访问iframe内容（可能是跨域限制）:', e);
+                }
+            });
+            
+            // meta标签中的URL
+            var metas = document.querySelectorAll('meta[content]');
+            metas.forEach(function(meta) {
+                // 检查常见包含URL的meta标签
+                var name = meta.getAttribute('name');
+                var property = meta.getAttribute('property');
+                var httpEquiv = meta.getAttribute('http-equiv');
+                
+                // 只处理可能包含URL的meta标签
+                if (['refresh', 'og:image', 'og:url', 'twitter:image', 'msapplication-TileImage', 'thumbnail'].includes(name) ||
+                    ['refresh', 'og:image', 'og:url', 'twitter:image'].includes(property) ||
+                    httpEquiv === 'refresh') {
+                    
+                    var content = meta.getAttribute('content');
+                    if (content && content.trim() !== '') {
+                        // 对于refresh标签，提取URL部分
+                        if (name === 'refresh' || httpEquiv === 'refresh') {
+                            var match = content.match(/URL=([^\s]+)/i);
+                            if (match && match[1]) {
+                                content = match[1];
+                            }
+                        }
+                        
+                        // 尝试解析URL
+                        if (content.match(/^https?:\/\//i) || content.match(/^\//)) {
+                            try {
+                                var urlObj = new URL(content, window.location.href);
+                                urls.add(urlObj.href);
+                            } catch (e) {
+                                urls.add(content);
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 其他可能包含URL的属性
+            var elementsWithUrlAttrs = document.querySelectorAll('[longdesc], [usemap], [formaction], [action], [manifest], [poster]');
+            elementsWithUrlAttrs.forEach(function(element) {
+                var urlAttrs = ['longdesc', 'usemap', 'formaction', 'action', 'manifest', 'poster'];
+                urlAttrs.forEach(function(attr) {
+                    if (element.hasAttribute(attr)) {
+                        var url = element.getAttribute(attr);
+                        if (url && url.trim() !== '' && (url.match(/^https?:\/\//i) || url.match(/^\//))) {
+                            try {
+                                var urlObj = new URL(url, window.location.href);
+                                urls.add(urlObj.href);
+                            } catch (e) {
+                                urls.add(url);
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // 查找data-*属性中的URL
+            var allElements = document.querySelectorAll('*');
+            allElements.forEach(function(element) {
+                // 获取所有data-*属性
+                var attributes = element.attributes;
+                for (var i = 0; i < attributes.length; i++) {
+                    var attr = attributes[i];
+                    if (attr.name.startsWith('data-') && attr.value) {
+                        // 检查属性值是否可能是URL
+                        var value = attr.value.trim();
+                        if (value && (value.match(/^https?:\/\//i) || value.match(/^\//))) {
+                            try {
+                                var urlObj = new URL(value, window.location.href);
+                                urls.add(urlObj.href);
+                            } catch (e) {
+                                // 如果不是有效URL，忽略
+                            }
+                        }
+                    }
+                }
+                
+                // 检查内联样式中的URL
+                if (element.hasAttribute('style')) {
+                    var styleValue = element.getAttribute('style');
+                    if (styleValue) {
+                        // 查找样式中的url()函数
+                        var urlMatches = styleValue.match(/url\(['"]?(.*?)['"]?\)/g);
+                        if (urlMatches) {
+                            urlMatches.forEach(function(match) {
+                                // 提取URL部分
+                                var urlMatch = match.match(/url\(['"]?(.*?)['"]?\)/);
+                                if (urlMatch && urlMatch[1]) {
+                                    var url = urlMatch[1].trim();
+                                    if (url) {
+                                        try {
+                                            var urlObj = new URL(url, window.location.href);
+                                            urls.add(urlObj.href);
+                                        } catch (e) {
+                                            urls.add(url);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+
+            return Array.from(urls);
         })();    
     """.trimIndent()
 
         webView.evaluateJavascript(javascript) { result ->
             mainHandler.post {
                 try {
-                    val urls = mutableListOf<String>()
-                    val jsonArray = JSONArray(result)
-                    for (i in 0 until jsonArray.length()) {
-                        urls.add(jsonArray.getString(i))
+                    val urls = mutableListOf<ElementUrl>()
+                    // 处理可能的null或undefined结果
+                    if (result != null && result != "null" && result != "undefined") {
+                        val jsonArray = JSONArray(result)
+                        for (i in 0 until jsonArray.length()) {
+                            val url = jsonArray.getString(i)
+                            if (url.isNotEmpty()) {
+                                urls.add(ElementUrl(url))
+                            }
+                        }
                     }
                     callback(urls)
                 } catch (e: Exception) {
@@ -1001,6 +1309,7 @@ class WebViewManager(private val webView: WebView) {
             }
         }
     }
+
 
     /**
      * 测试元素是否存在（调试用）
@@ -1285,5 +1594,9 @@ class WebViewManager(private val webView: WebView) {
 
     fun reload() {
         this.webView.reload()
+    }
+
+    fun loadUrl(url: String) {
+        this.webView.loadUrl(url)
     }
 }

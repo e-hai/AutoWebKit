@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kit.autoweb.ui.model.ElementInfo
+import com.kit.autoweb.ui.model.ElementUrl
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.kit.autoweb.ui.widget.ClickPositionIndicator
@@ -117,10 +118,25 @@ fun WebViewScreen(
 
                             ScanElementsButton(
                                 onScanElements = {
-                                    webViewViewModel.scanElements()
+                                    webViewViewModel.scanUrls()
                                 }
                             )
-
+                            UrlListContent(
+                                urls = uiState.urls,
+                                isClickEnabled = isClickEnabled,
+                                onUrlClick = { url ->
+                                    isControlPanelVisible.value = false
+                                    if (isClickEnabled) {
+                                        isClickEnabled = false
+                                        // 延迟恢复点击能力
+                                        effectScope.launch {
+                                            delay(1500)
+                                            isClickEnabled = true
+                                        }
+                                        webViewViewModel.onClickUrl(url)
+                                    }
+                                }
+                            )
                             ElementListContent(
                                 elements = uiState.elements,
                                 isClickEnabled = isClickEnabled,
@@ -155,6 +171,33 @@ fun WebViewScreen(
     )
 }
 
+@Composable
+fun UrlListContent(
+    urls: List<ElementUrl>,
+    isClickEnabled: Boolean,
+    onUrlClick: (ElementUrl) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp)
+    ) {
+        items(urls.size, key = { it }) { index ->
+            val element = urls[index]
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = element.url,
+                    modifier = Modifier.clickable(enabled = isClickEnabled) {
+                        onUrlClick(element)
+                    }
+                )
+            }
+        }
+    }
+}
 
 
 @Composable
