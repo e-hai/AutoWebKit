@@ -35,435 +35,6 @@ class WebViewManager(private val webView: WebView) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gestureSimulator = GestureSimulator(webView)
 
-    /**
-     * 智能滑动到元素位置，处理懒加载问题
-     */
-    private fun scrollToMakeElementVisibleSmart(element: ElementInfo, callback: (String) -> Unit) {
-        Log.d(TAG, "开始智能滑动到元素: ${element.identifier}")
-
-        // 首先检查元素是否已经接近视口
-        if (isElementNearViewport(element)) {
-            Log.d(TAG, "元素接近视口，使用精确滑动")
-            performPreciseScroll(element, callback)
-        } else {
-            Log.d(TAG, "元素距离较远，使用分步滑动")
-            // 获取初始页面状态
-            getPageScrollInfo { initialPageInfo ->
-                performSmartScroll(element, initialPageInfo, 0, callback)
-            }
-        }
-    }
-
-    /**
-     * 检查元素是否接近视口（在1.5倍视口范围内）
-     */
-    private fun isElementNearViewport(element: ElementInfo): Boolean {
-        val viewportWidth = webView.width
-        val viewportHeight = webView.height
-        val threshold = 1.5f
-
-        return element.x >= -viewportWidth * threshold && element.x <= viewportWidth * (1 + threshold) &&
-                element.y >= -viewportHeight * threshold && element.y <= viewportHeight * (1 + threshold)
-    }
-
-    /**
-     * 执行精确滑动（当元素距离不远时）
-     */
-    private fun performPreciseScroll(element: ElementInfo, callback: (String) -> Unit) {
-        val viewportWidth = webView.width
-        val viewportHeight = webView.height
-        val centerX = viewportWidth / 2f
-        val centerY = viewportHeight / 2f
-
-        // 计算需要滑动的精确距离，但限制最大值
-        val deltaX = element.x - centerX
-        val deltaY = element.y - centerY
-
-        // 限制滑动距离为较小的值
-        val maxPreciseDistance = 100f
-        val scrollX = when {
-            abs(deltaX) > maxPreciseDistance -> maxPreciseDistance * if (deltaX > 0) 1f else -1f
-            abs(deltaX) < 50f -> 0f // 太小的距离不滑动
-            else -> deltaX
-        }
-
-        val scrollY = when {
-            abs(deltaY) > maxPreciseDistance -> maxPreciseDistance * if (deltaY > 0) 1f else -1f
-            abs(deltaY) < 50f -> 0f // 太小的距离不滑动
-            else -> deltaY
-        }
-
-
-        if (abs(scrollX) > abs(scrollY)) {
-            // 主要进行水平滑动
-            val toX = centerX - scrollX
-            Log.d(TAG, "精确水平滑动: ${abs(scrollX)}px")
-            simulateSwipe(centerX, centerY, toX, centerY, 200) { result ->
-                waitForLazyLoadComplete {
-                    callback(result)
-                }
-            }
-        } else if (abs(scrollY) > 10f) {
-            // 主要进行垂直滑动
-            val toY = centerY - scrollY
-            Log.d(TAG, "精确垂直滑动: ${abs(scrollY)}px 最终位置：$toY")
-            simulateSwipe(centerX, centerY, centerX, toY, 200) { result ->
-                waitForLazyLoadComplete {
-                    callback(result)
-                }
-            }
-        } else {
-            // 距离太小，不需要滑动
-            Log.d(TAG, "元素已在合适位置，无需滑动")
-            callback("SUCCESS: 元素位置合适，无需滑动")
-        }
-    }
-
-    /**
-     * 执行智能滑动，分步进行并处理懒加载
-     */
-    private fun performSmartScroll(
-        targetElement: ElementInfo,
-        initialPageInfo: PageScrollInfo,
-        currentStep: Int,
-        callback: (String) -> Unit
-    ) {
-        if (currentStep >= MAX_SCROLL_STEPS) {
-            callback("ERROR: 达到最大滑动步数，未能找到目标元素")
-            return
-        }
-
-        Log.d(TAG, "执行滑动步骤 ${currentStep + 1}/$MAX_SCROLL_STEPS")
-
-        // 首先检查目标元素是否已经可见
-        getElementPosition(targetElement) { positionResult ->
-            if (!positionResult.startsWith("ERROR")) {
-                // 解析元素位置
-                parseElementPosition(positionResult) { currentElement ->
-                    if (currentElement != null && isElementInViewport(currentElement)) {
-                        callback("SUCCESS: 元素已在视口内，无需继续滑动")
-                        return@parseElementPosition
-                    }
-
-                    // 元素存在但不在视口内，继续滑动
-                    if (currentElement != null) {
-                        executeSmartScrollStep(currentElement, initialPageInfo) { scrollResult ->
-                            // 等待懒加载完成
-                            waitForLazyLoadComplete {
-                                // 递归继续下一步
-                                performSmartScroll(
-                                    targetElement,
-                                    initialPageInfo,
-                                    currentStep + 1,
-                                    callback
-                                )
-                            }
-                        }
-                    } else {
-                        // 元素不存在，尝试滑动加载更多内容
-                        executeExploratoryScroll(initialPageInfo, currentStep) { scrollResult ->
-                            waitForLazyLoadComplete {
-                                performSmartScroll(
-                                    targetElement,
-                                    initialPageInfo,
-                                    currentStep + 1,
-                                    callback
-                                )
-                            }
-                        }
-                    }
-                }
-            } else {
-                // 元素不存在，尝试滑动加载更多内容
-                executeExploratoryScroll(initialPageInfo, currentStep) { scrollResult ->
-                    waitForLazyLoadComplete {
-                        performSmartScroll(
-                            targetElement,
-                            initialPageInfo,
-                            currentStep + 1,
-                            callback
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * 执行智能滑动步骤 - 基于元素位置计算滑动方向和距离
-     */
-    private fun executeSmartScrollStep(
-        element: ElementInfo,
-        pageInfo: PageScrollInfo,
-        callback: (String) -> Unit
-    ) {
-        val viewportWidth = webView.width
-        val viewportHeight = webView.height
-        val centerX = viewportWidth / 2f
-        val centerY = viewportHeight / 2f
-
-        // 计算元素相对于视口中心的位置
-        val elementCenterX = element.x
-        val elementCenterY = element.y
-
-        // 计算需要滑动的方向和距离
-        val deltaX = elementCenterX - centerX
-        val deltaY = elementCenterY - centerY
-
-        // 确定主要滑动方向（垂直或水平）
-        val isVerticalScroll = abs(deltaY) > abs(deltaX)
-
-        val scrollDistance = if (isVerticalScroll) {
-            // 垂直滑动：使用更小且固定的滑动距离
-            val targetDistance = abs(deltaY)
-            when {
-                targetDistance > MAX_SCROLL_DISTANCE -> MAX_SCROLL_DISTANCE
-                targetDistance < MIN_SCROLL_DISTANCE -> MIN_SCROLL_DISTANCE
-                else -> targetDistance
-            } * if (deltaY > 0) 1f else -1f
-        } else {
-            // 水平滑动：使用更小且固定的滑动距离
-            val targetDistance = abs(deltaX)
-            when {
-                targetDistance > MAX_SCROLL_DISTANCE -> MAX_SCROLL_DISTANCE
-                targetDistance < MIN_SCROLL_DISTANCE -> MIN_SCROLL_DISTANCE
-                else -> targetDistance
-            } * if (deltaX > 0) 1f else -1f
-        }
-
-        // 执行滑动
-        if (isVerticalScroll) {
-            val fromY = centerY
-            val toY = centerY - scrollDistance // 注意方向：向上滑动是负值
-
-            Log.d(TAG, "垂直滑动: 从 $fromY 到 $toY (实际距离: ${abs(scrollDistance)}px)")
-            simulateSwipe(centerX, fromY, centerX, toY, 300, callback)
-        } else {
-            val fromX = centerX
-            val toX = centerX - scrollDistance // 注意方向：向左滑动是负值
-
-            Log.d(TAG, "水平滑动: 从 $fromX 到 $toX (实际距离: ${abs(scrollDistance)}px)")
-            simulateSwipe(fromX, centerY, toX, centerY, 300, callback)
-        }
-    }
-
-    /**
-     * 执行探索性滑动 - 当元素不存在时，逐步滑动页面寻找元素
-     */
-    private fun executeExploratoryScroll(
-        pageInfo: PageScrollInfo,
-        currentStep: Int,
-        callback: (String) -> Unit
-    ) {
-        val viewportWidth = webView.width
-        val viewportHeight = webView.height
-        val centerX = viewportWidth / 2f
-        val centerY = viewportHeight / 2f
-
-        // 使用固定的小距离进行探索性滑动
-        val verticalScrollDistance = MIN_SCROLL_DISTANCE * 1.5f // 150px
-        val horizontalScrollDistance = MIN_SCROLL_DISTANCE * 1.2f // 120px
-
-        when (currentStep % 4) {
-            0 -> {
-                // 向下滑动
-                Log.d(TAG, "探索性滑动: 向下 ${verticalScrollDistance}px")
-                simulateSwipe(
-                    centerX,
-                    centerY,
-                    centerX,
-                    centerY - verticalScrollDistance,
-                    250,
-                    callback
-                )
-            }
-
-            1 -> {
-                // 向上滑动
-                Log.d(TAG, "探索性滑动: 向上 ${verticalScrollDistance}px")
-                simulateSwipe(
-                    centerX,
-                    centerY,
-                    centerX,
-                    centerY + verticalScrollDistance,
-                    250,
-                    callback
-                )
-            }
-
-            2 -> {
-                // 向右滑动
-                Log.d(TAG, "探索性滑动: 向右 ${horizontalScrollDistance}px")
-                simulateSwipe(
-                    centerX,
-                    centerY,
-                    centerX - horizontalScrollDistance,
-                    centerY,
-                    250,
-                    callback
-                )
-            }
-
-            3 -> {
-                // 向左滑动
-                Log.d(TAG, "探索性滑动: 向左 ${horizontalScrollDistance}px")
-                simulateSwipe(
-                    centerX,
-                    centerY,
-                    centerX + horizontalScrollDistance,
-                    centerY,
-                    250,
-                    callback
-                )
-            }
-        }
-    }
-
-    /**
-     * 等待懒加载完成
-     */
-    private fun waitForLazyLoadComplete(callback: () -> Unit) {
-        Log.d(TAG, "等待懒加载完成...")
-
-        var checkCount = 0
-        val maxChecks = 8 // 最多检查8次
-
-        fun checkLoadingStatus() {
-            checkCount++
-
-            val javascript = """
-                (function() {
-                    var status = {
-                        timestamp: Date.now(),
-                        documentReady: document.readyState === 'complete',
-                        activeRequests: 0,
-                        newImages: 0,
-                        loadingImages: 0,
-                        totalElements: document.querySelectorAll('*').length
-                    };
-                    
-                    // 检查图片加载状态
-                    var images = document.images;
-                    for (var i = 0; i < images.length; i++) {
-                        if (!images[i].complete) {
-                            status.loadingImages++;
-                        }
-                    }
-                    
-                    // 检查是否有新加载的内容（通过检查最近添加的元素）
-                    var recentElements = document.querySelectorAll('[data-lazy], [loading="lazy"], .lazy, .lazyload');
-                    status.lazyElements = recentElements.length;
-                    
-                    return JSON.stringify(status);
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(javascript) { result ->
-                Log.d(TAG, "懒加载状态检查 $checkCount/$maxChecks: $result")
-
-                mainHandler.postDelayed({
-                    if (checkCount >= maxChecks) {
-                        Log.d(TAG, "懒加载等待完成")
-                        callback()
-                    } else {
-                        checkLoadingStatus()
-                    }
-                }, PAGE_STABILITY_CHECK_INTERVAL)
-            }
-        }
-
-        // 初始等待时间
-        mainHandler.postDelayed({
-            checkLoadingStatus()
-        }, LAZY_LOAD_WAIT_TIME)
-    }
-
-    /**
-     * 获取页面滚动信息
-     */
-    private fun getPageScrollInfo(callback: (PageScrollInfo) -> Unit) {
-        val javascript = """
-            (function() {
-                return {
-                    scrollTop: window.pageYOffset || document.documentElement.scrollTop,
-                    scrollLeft: window.pageXOffset || document.documentElement.scrollLeft,
-                    scrollWidth: document.documentElement.scrollWidth,
-                    scrollHeight: document.documentElement.scrollHeight,
-                    clientWidth: document.documentElement.clientWidth,
-                    clientHeight: document.documentElement.clientHeight,
-                    viewportWidth: window.innerWidth,
-                    viewportHeight: window.innerHeight
-                };
-            })();
-        """.trimIndent()
-
-        webView.evaluateJavascript(javascript) { result ->
-            try {
-                val moshi = Moshi.Builder()
-                    .add(KotlinJsonAdapterFactory())
-                    .build()
-                val adapter = moshi.adapter(PageScrollInfo::class.java)
-                val pageInfo = adapter.fromJson(result) ?: PageScrollInfo()
-                callback(pageInfo)
-            } catch (e: Exception) {
-                Log.e(TAG, "解析页面滚动信息失败", e)
-                callback(PageScrollInfo())
-            }
-        }
-    }
-
-    /**
-     * 改进的分步点击元素方法
-     */
-    fun clickElementWithStepsImproved(elementInfo: ElementInfo, callback: (String) -> Unit) {
-        Log.d(TAG, "开始改进的分步点击元素: $elementInfo")
-
-        // 第一步：尝试直接获取元素
-        if (isElementInViewport(elementInfo)) {
-            // 元素可见，直接点击
-            performFinalClick(elementInfo, callback)
-            return
-        }
-
-        getElementPosition(elementInfo) { positionResult ->
-            if (!positionResult.startsWith("ERROR")) {
-                // 元素存在，检查是否可见
-                parseElementPosition(positionResult) { element ->
-                    if (element != null) {
-                        if (isElementInViewport(element)) {
-                            // 元素可见，直接点击
-                            performFinalClick(elementInfo, callback)
-                        } else {
-                            // 元素存在但不可见，智能滑动
-                            scrollToMakeElementVisibleSmart(element) { scrollResult ->
-                                Log.d(TAG, "智能滑动结果: $scrollResult")
-                                if (scrollResult.startsWith("SUCCESS") || scrollResult.startsWith("ERROR")) {
-                                    // 滑动完成，执行最终点击
-                                    performFinalClick(elementInfo, callback)
-                                } else {
-                                    callback("ERROR: 滑动到元素失败 - $scrollResult")
-                                }
-                            }
-                        }
-                    } else {
-                        callback("ERROR: 无法解析元素位置信息")
-                    }
-                }
-            } else {
-                // 元素不存在，尝试智能滑动寻找
-                Log.d(TAG, "元素不存在，开始智能滑动寻找")
-                getPageScrollInfo { pageInfo ->
-                    performSmartScroll(elementInfo, pageInfo, 0) { searchResult ->
-                        if (searchResult.startsWith("SUCCESS")) {
-                            performFinalClick(elementInfo, callback)
-                        } else {
-                            callback("ERROR: 未能找到目标元素 - $searchResult")
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * 获取网页内所有元素及其位置信息
@@ -571,44 +142,48 @@ class WebViewManager(private val webView: WebView) {
 
     /**
      * 分步点击元素：先滑动使其可见，再点击
-     * @param elementId 元素标识符
+     * @param elementInfo 元素
      * @param callback 操作结果回调
      */
     fun clickElementWithSteps(elementInfo: ElementInfo, callback: (String) -> Unit) {
         Log.d(TAG, "开始分步点击元素: $elementInfo")
 
-        // 第一步：获取元素初始位置信息
-        getElementPosition(elementInfo) { positionResult ->
-            if (positionResult.startsWith("ERROR")) {
-                callback("第一步失败: $positionResult")
+        // 第一步：尝试直接获取元素
+        if (isElementInViewport(elementInfo)) {
+            // 元素可见，直接点击
+            Log.d(TAG, "第一步完成 - 直接点击")
+            performFinalClick(elementInfo, callback)
+            return
+        }
+
+        // 第二步：不可见，重新获取元素位置信息
+        getElementPosition(elementInfo) {
+            if (it == null) {
+                callback("ERROR: 无法解析元素位置信息")
                 return@getElementPosition
             }
 
-            Log.d(TAG, "第一步完成 - 获取元素位置: $positionResult")
+            // 第二步：检查元素是否在视口内，如果不在则滑动使其可见
+            if (isElementInViewport(it)) {
+                Log.d(TAG, "元素已在视口内，直接进行点击")
+                // 元素已可见，直接点击
+                performFinalClick(elementInfo, callback)
+                return@getElementPosition
+            }
 
-            // 解析位置信息
-            parseElementPosition(positionResult) { element ->
-                if (element == null) {
-                    callback("ERROR: 无法解析元素位置信息")
-                    return@parseElementPosition
-                }
-
-                // 第二步：检查元素是否在视口内，如果不在则滑动使其可见
-                if (!isElementInViewport(element)) {
-                    Log.d(TAG, "第二步 - 元素不在视口内，开始滑动使其可见")
-                    scrollToMakeElementVisible(element) { scrollResult ->
-                        Log.d(TAG, "滑动结果: $scrollResult")
-
-                        // 第三步：等待页面稳定并重新获取元素位置
-                        waitForPageStable {
-                            Log.d(TAG, "第三步 - 页面稳定后重新获取元素位置")
-                            performFinalClick(elementInfo, callback)
+            Log.d(TAG, "元素不在视口内，开始滑动使其可见")
+            scrollToMakeElementVisible(it) { scrollResult ->
+                Log.d(TAG, "滑动结果: $scrollResult")
+                // 第三步：等待页面稳定并重新获取元素位置
+                waitForPageStable {
+                    Log.d(TAG, "第三步 - 页面稳定后重新获取元素位置")
+                    getElementPosition(it) { finalElement ->
+                        if (finalElement == null) {
+                            callback("ERROR: 页面稳定后无法解析元素位置信息")
+                            return@getElementPosition
                         }
+                        performFinalClick(finalElement, callback)
                     }
-                } else {
-                    Log.d(TAG, "元素已在视口内，直接进行点击")
-                    // 元素已可见，直接点击
-                    performFinalClick(elementInfo, callback)
                 }
             }
         }
@@ -618,7 +193,7 @@ class WebViewManager(private val webView: WebView) {
      * 获取元素位置信息
      * 通过元素id和title来匹配，如果title为空，则根据id匹配到的第一个元素
      */
-    private fun getElementPosition(elementInfo: ElementInfo, callback: (String) -> Unit) {
+    private fun getElementPosition(elementInfo: ElementInfo, callback: (ElementInfo?) -> Unit) {
         val javascript = """
                         (function() {
                             try {
@@ -788,8 +363,10 @@ class WebViewManager(private val webView: WebView) {
                         """.trimIndent()
 
         webView.evaluateJavascript(javascript) { result ->
-            mainHandler.post {
-                callback(result)
+            parseElementPosition(result) { element ->
+                mainHandler.post {
+                    callback(element)
+                }
             }
         }
     }
@@ -824,7 +401,7 @@ class WebViewManager(private val webView: WebView) {
     /**
      * 滑动页面使元素可见
      */
-    fun scrollToMakeElementVisible(element: ElementInfo, callback: (String) -> Unit) {
+    private fun scrollToMakeElementVisible(element: ElementInfo, callback: (String) -> Unit) {
         val viewportWidth = webView.width
         val viewportHeight = webView.height
         Log.d(TAG, "视口大小: ($viewportWidth, $viewportHeight)")
@@ -918,8 +495,8 @@ class WebViewManager(private val webView: WebView) {
         Log.d(TAG, "尝试点击元素 (第${attemptCount + 1}次): $elementInfo")
 
         // 重新获取元素最新位置
-        getElementPosition(elementInfo) { positionResult ->
-            if (positionResult.startsWith("ERROR")) {
+        getElementPosition(elementInfo) { element ->
+            if (null == element) {
                 // 等待后重试
                 mainHandler.postDelayed({
                     performClickWithRetry(elementInfo, attemptCount + 1, callback)

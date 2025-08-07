@@ -37,6 +37,7 @@ class AutoWebViewGroup : RelativeLayout {
         webView = WebView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         }
+
         // 将 webView 添加到当前的 RelativeLayout 中
         addView(webView)
     }

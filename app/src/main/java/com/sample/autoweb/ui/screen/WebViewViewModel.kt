@@ -62,7 +62,7 @@ class WebViewViewModel : ViewModel() {
     fun onElementClick(elementInfo: ElementInfo) {
         Log.d(TAG, "点击元素: $elementInfo")
         viewModelScope.launch {
-            webViewManager?.clickElementWithStepsImproved(elementInfo) {
+            webViewManager?.clickElementWithSteps(elementInfo) {
                 Log.d(TAG, "scroll element result: $it")
             }
 //
