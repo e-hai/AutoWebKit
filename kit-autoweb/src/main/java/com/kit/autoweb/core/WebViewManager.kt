@@ -533,10 +533,10 @@ class WebViewManager(private val webView: WebView) {
                                         var elementInfo = {
                                             identifier: identifier,
                                             // 如果需要物理像素坐标，可以使用下面这些
-                                            x: Math.round(rect.left + rect.width / 2),
-                                            y: Math.round(rect.top + rect.height / 2),
-                                            width: Math.round(rect.width),
-                                            height: Math.round(rect.height),
+                                            x: Math.round(rect.left + rect.width / 2) * devicePixelRatio,
+                                            y: Math.round(rect.top + rect.height / 2) * devicePixelRatio,
+                                            width: Math.round(rect.width) * devicePixelRatio,
+                                            height: Math.round(rect.height) * devicePixelRatio,
                                             isVisible: isVisible,
                                             title: title,
                                             url: url
@@ -771,10 +771,10 @@ class WebViewManager(private val webView: WebView) {
                                         identifier: identifier,
                                         searchMethod: searchMethod,
                                         // 物理像素坐标
-                                        x: Math.round(rect.left + rect.width / 2),
-                                        y: Math.round(rect.top + rect.height / 2),
-                                        width: Math.round(rect.width),
-                                        height: Math.round(rect.height),
+                                        x: Math.round(rect.left + rect.width / 2) * devicePixelRatio,
+                                        y: Math.round(rect.top + rect.height / 2) * devicePixelRatio,
+                                        width: Math.round(rect.width) * devicePixelRatio,
+                                        height: Math.round(rect.height) * devicePixelRatio,
                                         isVisible: isVisible,
                                         title: elementTitle,
                                         targetTitle: targetTitle,
@@ -824,32 +824,30 @@ class WebViewManager(private val webView: WebView) {
     /**
      * 滑动页面使元素可见
      */
-    private fun scrollToMakeElementVisible(element: ElementInfo, callback: (String) -> Unit) {
+    fun scrollToMakeElementVisible(element: ElementInfo, callback: (String) -> Unit) {
         val viewportWidth = webView.width
         val viewportHeight = webView.height
-
+        Log.d(TAG, "视口大小: ($viewportWidth, $viewportHeight)")
         // 计算需要滑动的距离
-        val centerX = viewportWidth / 2f
-        val centerY = viewportHeight / 2f
+        val viewportCenterX = viewportWidth / 2f
+        val viewportCenterY = viewportHeight / 2f
+        Log.d(TAG, "视口中心: ($viewportCenterX, $viewportCenterY)")
+        Log.d(TAG, "元素位置: (${element.x}, ${element.y})")
 
         // 计算元素应该移动到的目标位置（屏幕中心）
-        val deltaX = centerX - element.x
-        val deltaY = centerY - element.y
-
-        // 限制滑动距离，避免过度滑动
-        val maxScrollDistance = viewportWidth.coerceAtMost(viewportHeight) * 0.8f
-        val scrollX = (-maxScrollDistance).coerceAtLeast(maxScrollDistance.coerceAtMost(deltaX))
-        val scrollY = (-maxScrollDistance).coerceAtLeast(maxScrollDistance.coerceAtMost(deltaY))
+        val deltaX = viewportCenterX - element.x
+        val deltaY = viewportCenterY - element.y
+        Log.d(TAG, "元素移动距离: ($deltaX, $deltaY)")
 
         // 执行滑动操作
-        val fromX = centerX
-        val fromY = centerY
-        val toX = centerX + scrollX
-        val toY = centerY + scrollY
+        val fromX = viewportCenterX
+        val fromY = viewportCenterY
+        val toX = viewportCenterX + deltaX
+        val toY = viewportCenterY + deltaY
 
         Log.d(TAG, "滑动操作: 从($fromX, $fromY) 到 ($toX, $toY)")
 
-        simulateSwipe(fromX, fromY, toX, toY, 600, callback)
+        simulateSwipe(fromX, fromY, toX, toY, 2000, callback)
     }
 
     /**
@@ -931,8 +929,8 @@ class WebViewManager(private val webView: WebView) {
 
             // 执行位置点击
             simulateNativeTouchEvent(
-                elementInfo.x.toFloat(),
-                elementInfo.y.toFloat()
+                elementInfo.x,
+                elementInfo.y
             ) { clickResult ->
                 if (clickResult.startsWith("SUCCESS")) {
                     callback("SUCCESS: 分步点击完成 - $clickResult")
@@ -1592,11 +1590,15 @@ class WebViewManager(private val webView: WebView) {
     }
 
 
+    fun loadUrl(url: String) {
+        this.webView.loadUrl(url)
+    }
+
     fun reload() {
         this.webView.reload()
     }
 
-    fun loadUrl(url: String) {
-        this.webView.loadUrl(url)
+    fun canGoBack(): Boolean {
+        return this.webView.canGoBack()
     }
 }

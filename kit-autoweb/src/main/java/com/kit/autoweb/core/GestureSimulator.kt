@@ -93,9 +93,8 @@ class GestureSimulator(private val targetView: View) {
 
                 for (i in 1..steps) {
                     val progress = i.toFloat() / steps
-                    val interpolated = easeInOutCubic(progress)
-                    val currentX = startX + (endX - startX) * interpolated
-                    val currentY = startY + (endY - startY) * interpolated
+                    val currentX = startX + (endX - startX) * progress
+                    val currentY = startY + (endY - startY) * progress
                     val eventTime = downTime + i * timeStep
 
                     val moveEvent = MotionEvent.obtain(
@@ -107,6 +106,7 @@ class GestureSimulator(private val targetView: View) {
                     )
                     targetView.dispatchTouchEvent(moveEvent)
                     moveEvent.recycle()
+                    SystemClock.sleep(timeStep)// 控制滑动速度
                 }
 
                 val upEvent = MotionEvent.obtain(
@@ -129,10 +129,5 @@ class GestureSimulator(private val targetView: View) {
         }
     }
 
-    /**
-     * 缓动函数：先慢→快→慢
-     */
-    private fun easeInOutCubic(t: Float): Float {
-        return if (t < 0.5f) 4 * t * t * t else 1 - (-2 * t + 2).toDouble().pow(3.0).toFloat() / 2
-    }
+
 }

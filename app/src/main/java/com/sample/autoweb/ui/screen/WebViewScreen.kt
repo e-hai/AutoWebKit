@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kit.autoweb.ui.model.ElementInfo
 import com.kit.autoweb.ui.model.ElementUrl
@@ -54,6 +55,7 @@ fun WebViewScreen(
     val isControlPanelVisible = remember { mutableStateOf(false) }         //控制面板显隐
     val webLoadProgress = remember { mutableFloatStateOf(0f) }
 
+    PrintScreenSize()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -118,6 +120,11 @@ fun WebViewScreen(
 
                             ScanElementsButton(
                                 onScanElements = {
+                                    webViewViewModel.scanElements()
+                                }
+                            )
+                            ScanUrlsButton(
+                                onScanUrls = {
                                     webViewViewModel.scanUrls()
                                 }
                             )
@@ -169,6 +176,28 @@ fun WebViewScreen(
             )
         }
     )
+}
+
+@Composable
+private fun PrintScreenSize() {
+    // 获取屏幕尺寸并打印到日志
+    val context = LocalContext.current
+    val displayMetrics = context.resources.displayMetrics
+    val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
+    val screenHeightDp = displayMetrics.heightPixels / displayMetrics.density
+    Log.d("WebViewScreen", "Screen size: ${screenWidthDp}dp x ${screenHeightDp}dp")
+}
+
+@Composable
+fun ScanUrlsButton(onScanUrls: () -> Unit) {
+    Button(
+        onClick = onScanUrls,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp)
+    ) {
+        Text("扫描URL")
+    }
 }
 
 @Composable

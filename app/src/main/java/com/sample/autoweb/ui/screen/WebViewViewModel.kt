@@ -39,7 +39,7 @@ class WebViewViewModel : ViewModel() {
 
     private fun showUrlList(urls: List<ElementUrl>) {
         viewModelScope.launch {
-            _uiState.update { it.copy(urls = urls) }
+            _uiState.update { it.copy(elements = emptyList(), urls = urls) }
         }
     }
 
@@ -54,7 +54,7 @@ class WebViewViewModel : ViewModel() {
     fun showElementList(elements: List<ElementInfo>) {
         Log.d(TAG, "显示元素列表: $elements")
         viewModelScope.launch {
-            _uiState.update { it.copy(elements = elements) }
+            _uiState.update { it.copy(elements = elements, urls = emptyList()) }
         }
     }
 
@@ -62,25 +62,25 @@ class WebViewViewModel : ViewModel() {
     fun onElementClick(elementInfo: ElementInfo) {
         Log.d(TAG, "点击元素: $elementInfo")
         viewModelScope.launch {
-//            webViewManager?.clickElementWithStepsImproved(elementInfo) {
-//                Log.d(TAG, "Click element result: $it")
+            webViewManager?.clickElementWithStepsImproved(elementInfo) {
+                Log.d(TAG, "scroll element result: $it")
+            }
+//
+//            delay(1000)
+//            val position = PointF(elementInfo.x, elementInfo.y)
+//            _uiState.update { it.copy(simulationClickPosition = position) }
+//            delay(2000)
+//
+//            webViewManager?.simulateNativeTouchEvent(
+//                elementInfo.x,
+//                elementInfo.y
+//            ) { result ->
+//                Log.d(TAG, "Click element result: $result")
 //            }
 //
-            delay(1000)
-            val position = PointF(elementInfo.x.toFloat(), elementInfo.y.toFloat())
-            _uiState.update { it.copy(simulationClickPosition = position) }
-            delay(2000)
-
-            webViewManager?.simulateNativeTouchEvent(
-                elementInfo.x.toFloat(),
-                elementInfo.y.toFloat()
-            ) { result ->
-                Log.d(TAG, "Click element result: $result")
-            }
-
-            // 自动清除点击位置
-            delay(1000)
-            _uiState.update { it.copy(simulationClickPosition = null) }
+//            // 自动清除点击位置
+//            delay(1000)
+//            _uiState.update { it.copy(simulationClickPosition = null) }
         }
     }
 

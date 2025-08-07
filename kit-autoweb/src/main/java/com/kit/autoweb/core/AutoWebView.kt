@@ -149,7 +149,7 @@ class AutoWebViewGroup : RelativeLayout {
         webView.destroy()
     }
 
-    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
-        return true
-    }
+//    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
+//        return true
+//    }
 }
